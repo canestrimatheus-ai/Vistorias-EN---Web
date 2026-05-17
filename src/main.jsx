@@ -107,7 +107,7 @@ function inspectionMatchesCategory(inspection, category) {
   ].map(normalizeRouteKey).filter(Boolean);
 
   if (categoryKeys.some((key) => keys.has(key))) return true;
-  if (category.flow === 'autocheck' || category.destination === 'autocheck') return isAutocheckInspection(inspection);
+  if (category.id === 'autocheck') return isAutocheckInspection(inspection);
   if (category.id === 'aggregates') return !isAutocheckInspection(inspection) && !String(info.type || '').toLowerCase().includes('agendada');
   return false;
 }
@@ -3030,7 +3030,10 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
                   </button>
                 </label>
                 <label>
-                  Modelo de PDF
+                  <span className="label-with-info">
+                    Modelo de PDF
+                    <InfoTip text="Define qual cabeçalho/layout o relatório deste tipo vai usar. Não muda os requisitos da vistoria; só o modelo visual do PDF gerado no painel." />
+                  </span>
                   <select value={draft.pdf_model_id || ''} onChange={(event) => updateDraft({ pdf_model_id: event.target.value })} required>
                     {pdfModels.map((model) => (
                       <option value={model.id} key={model.id}>{model.name}</option>
