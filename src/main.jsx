@@ -2655,6 +2655,10 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
     return pdfModels.find((model) => model.id === draft?.pdf_model_id) || pdfModels[0] || null;
   }
 
+  function defaultPdfModelId() {
+    return selectedPdfModel()?.id || pdfModels[0]?.id || '';
+  }
+
   function addInspectionType() {
     const basePdfModel = pdfModels[0];
     const id = `vistoria-${Date.now()}`;
@@ -2924,7 +2928,7 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
     try {
       await onSaveCategory({
         ...draft,
-        pdf_model_id: draft.pdf_model_id || selectedPdfModel()?.id || '',
+        pdf_model_id: draft.pdf_model_id || defaultPdfModelId(),
         app_fields: (draft.app_fields || []).map((item, index) => ({ ...item, order: Number(item.order) || index + 1 })),
         photo_fields: (draft.photo_fields || []).map((item, index) => ({ ...item, order: index + 1 })),
         table_items: (draft.table_items || []).map((item, index) => ({ ...item, order: index + 1 })),
@@ -3028,17 +3032,6 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
                     </span>
                     {selectedIcon.label}
                   </button>
-                </label>
-                <label>
-                  <span className="label-with-info">
-                    Modelo de PDF
-                    <InfoTip text="Define qual cabeçalho/layout o relatório deste tipo vai usar. Não muda os requisitos da vistoria; só o modelo visual do PDF gerado no painel." />
-                  </span>
-                  <select value={draft.pdf_model_id || ''} onChange={(event) => updateDraft({ pdf_model_id: event.target.value })} required>
-                    {pdfModels.map((model) => (
-                      <option value={model.id} key={model.id}>{model.name}</option>
-                    ))}
-                  </select>
                 </label>
                 <label>
                   Cor do botão no app
