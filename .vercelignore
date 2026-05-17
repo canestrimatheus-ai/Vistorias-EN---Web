@@ -1,0 +1,7 @@
+mobile
+node_modules
+dist
+.edge-profile*
+*.png
+!public/*.png
+pdf-reference

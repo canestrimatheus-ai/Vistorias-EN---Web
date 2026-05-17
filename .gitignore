@@ -1,0 +1,15 @@
+.vercel
+.env
+.env.*
+!.env.example
+node_modules
+dist
+mobile
+mobile-eas-downloads
+vercel-downloads
+*.log
+*.err.log
+*.png
+!public/*.png
+*.zip
+VERCEL_DEPLOYMENT_MANIFEST.json
