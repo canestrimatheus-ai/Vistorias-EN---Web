@@ -68,6 +68,50 @@ function isAutocheckInspection(inspection) {
   return String(inspection?.type || '').toLowerCase().includes('autocheck');
 }
 
+function normalizeRouteKey(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function categoryViewId(categoryId) {
+  return `category:${categoryId}`;
+}
+
+function inspectionCategoryInfo(inspection = {}) {
+  const model = inspection.applicable?.__checklist_model || {};
+  return {
+    id: model.category_id || model.category?.id || '',
+    name: model.category?.name || '',
+    type: inspection.type || '',
+  };
+}
+
+function inspectionMatchesCategory(inspection, category) {
+  if (!category) return false;
+  const info = inspectionCategoryInfo(inspection);
+  if (info.id && info.id === category.id) return true;
+
+  const keys = new Set([
+    normalizeRouteKey(info.name),
+    normalizeRouteKey(info.type),
+  ].filter(Boolean));
+  const categoryKeys = [
+    category.id,
+    category.slug,
+    category.name,
+  ].map(normalizeRouteKey).filter(Boolean);
+
+  if (categoryKeys.some((key) => keys.has(key))) return true;
+  if (category.flow === 'autocheck' || category.destination === 'autocheck') return isAutocheckInspection(inspection);
+  if (category.id === 'aggregates') return !isAutocheckInspection(inspection) && !String(info.type || '').toLowerCase().includes('agendada');
+  return false;
+}
+
 function normalizePlate(value = '') {
   return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
 }
@@ -1123,6 +1167,65 @@ function App() {
     });
   }, [inspections, profiles]);
 
+  const inspectionCategories = useMemo(() => {
+    const categories = (checklistConfig?.categories || [])
+      .filter((category) => (
+        category?.active !== false
+        && category.destination !== 'schedules'
+        && category.flow !== 'schedule'
+      ))
+      .sort((left, right) => (Number(left.sort_order) || 999) - (Number(right.sort_order) || 999));
+
+    return categories.length ? categories : [
+      { id: 'aggregates', name: 'Vistoria Agregados', icon: 'clipboard-check', flow: 'inspection', destination: 'inspector', sort_order: 1 },
+      { id: 'autocheck', name: 'Autocheck', icon: 'user-check', flow: 'autocheck', destination: 'autocheck', sort_order: 2 },
+    ];
+  }, [checklistConfig]);
+
+  const activeCategory = useMemo(() => {
+    if (!String(activeView || '').startsWith('category:')) return null;
+    const categoryId = activeView.replace('category:', '');
+    return inspectionCategories.find((category) => category.id === categoryId) || null;
+  }, [activeView, inspectionCategories]);
+
+  const categoryGroupsById = useMemo(() => {
+    const profileMap = new Map(profiles.map((item) => [item.id, item]));
+    const result = new Map();
+
+    inspectionCategories.forEach((category) => {
+      const groupByDriver = category.flow === 'autocheck' || category.destination === 'autocheck';
+      const groups = new Map();
+
+      inspections
+        .filter((inspection) => inspectionMatchesCategory(inspection, category))
+        .forEach((inspection) => {
+          const groupId = groupByDriver ? (inspection.driver_name || 'Motorista sem nome') : (inspection.user_id || 'unknown');
+          const profileData = profileMap.get(groupId);
+          const group = groups.get(groupId) || {
+            id: groupId,
+            name: groupByDriver
+              ? groupId
+              : profileData?.full_name || profileData?.email || inspection.driver_name || 'Vistoriador sem perfil',
+            email: groupByDriver ? '' : profileData?.email || '',
+            inspections: [],
+          };
+          group.inspections.push(inspection);
+          groups.set(groupId, group);
+        });
+
+      result.set(category.id, Array.from(groups.values()).map((group) => {
+        const total = group.inspections.length;
+        const approved = group.inspections.filter((item) => item.status === 'approved').length;
+        const rejected = group.inspections.filter((item) => item.status === 'rejected').length;
+        const completed = group.inspections.filter((item) => ['completed', 'approved'].includes(item.status)).length;
+        const pending = group.inspections.filter((item) => !['approved', 'rejected'].includes(item.status)).length;
+        return { ...group, total, approved, rejected, completed, pending };
+      }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')));
+    });
+
+    return result;
+  }, [inspectionCategories, inspections, profiles]);
+
   const autocheckGroups = useMemo(() => {
     const groups = new Map();
 
@@ -1163,6 +1266,12 @@ function App() {
   const selectedAutocheckGroup = useMemo(
     () => autocheckGroups.find((group) => group.id === selectedInspectorId) || null,
     [autocheckGroups, selectedInspectorId],
+  );
+
+  const activeCategoryGroups = activeCategory ? categoryGroupsById.get(activeCategory.id) || [] : [];
+  const selectedCategoryGroup = useMemo(
+    () => activeCategoryGroups.find((group) => group.id === selectedInspectorId) || null,
+    [activeCategoryGroups, selectedInspectorId],
   );
 
   useEffect(() => {
@@ -1221,25 +1330,26 @@ function App() {
           }}>
             <Home size={18} /> Início
           </button>
-          <div className={['inspector', 'autocheck', 'schedules'].includes(activeView) ? 'nav-dropdown open' : 'nav-dropdown'}>
+          <div className={(['inspector', 'autocheck', 'schedules'].includes(activeView) || String(activeView).startsWith('category:')) ? 'nav-dropdown open' : 'nav-dropdown'}>
             <button className="nav-dropdown-trigger" type="button">
               <FileText size={18} /> Vistorias <ChevronDown size={16} />
             </button>
             <div className="nav-dropdown-menu">
-              <button className={activeView === 'inspector' ? 'active' : ''} onClick={() => {
-                closeInspection();
-                setActiveView('inspector');
-              }}>
-                <ClipboardCheck size={18} /> Vistoria Agregados
-              </button>
-              <button className={activeView === 'autocheck' ? 'active' : ''} onClick={() => {
-                closeInspection();
-                setActiveView('autocheck');
-              }}>
-                <UserCheck size={18} /> Autocheck
-              </button>
+              {inspectionCategories.map((category) => {
+                const viewId = categoryViewId(category.id);
+                return (
+                  <button className={activeView === viewId ? 'active' : ''} key={category.id} onClick={() => {
+                    closeInspection();
+                    setSelectedInspectorId(null);
+                    setActiveView(viewId);
+                  }}>
+                    <InspectionIcon name={category.icon} size={18} /> {category.name}
+                  </button>
+                );
+              })}
               <button className={activeView === 'schedules' ? 'active' : ''} onClick={() => {
                 closeInspection();
+                setSelectedInspectorId(null);
                 setActiveView('schedules');
               }}>
                 <CalendarDays size={18} /> Agendamentos
@@ -1300,6 +1410,21 @@ function App() {
               closeInspection();
               setActiveView('inspector');
             }}
+          />
+        ) : activeCategory ? (
+          <ChecklistsWorkspace
+            title={activeCategory.name}
+            groupTitle={activeCategory.flow === 'autocheck' || activeCategory.destination === 'autocheck' ? 'Motoristas' : 'Vistoriadores'}
+            emptyMessage={`Nenhuma vistoria ${activeCategory.name} recebida atÃ© agora.`}
+            groups={activeCategoryGroups}
+            inspector={selectedCategoryGroup}
+            selectedInspectorId={selectedInspectorId}
+            setSelectedInspectorId={setSelectedInspectorId}
+            selected={selected}
+            setSelected={openInspection}
+            closeInspection={closeInspection}
+            setInspectionStatus={setInspectionStatus}
+            deleteInspections={deleteInspections}
           />
         ) : activeView === 'autocheck' ? (
           <ChecklistsWorkspace
