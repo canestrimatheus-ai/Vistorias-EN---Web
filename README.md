@@ -13,6 +13,14 @@ O sistema tem duas partes:
 - **Web**: este repositório. É o painel administrativo e as APIs.
 - **Mobile**: outro repositório. É o aplicativo instalado no celular.
 
+Para implantação real, leia também o guia completo:
+
+```text
+docs/IMPLEMENTACAO.md
+```
+
+Ele explica o SQL, as tabelas, os buckets, a ordem de implantação e como adaptar para outro banco ou outra hospedagem.
+
 O painel Web conversa com:
 
 - Supabase Auth, para login e usuários.
