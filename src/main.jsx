@@ -180,7 +180,7 @@ function seedCategoryRequirements(category, config) {
         active: item.active !== false,
         order: Number(item.order) || index + 1,
       }));
-  const appFields = category?.app_fields?.length ? category.app_fields : DEFAULT_APP_STEP_FIELDS;
+  const appFields = Array.isArray(category?.app_fields) ? category.app_fields : DEFAULT_APP_STEP_FIELDS;
   const signatureField = appFields.find((item) => item.field_type === 'signature');
   const nextAppFields = signatureField ? appFields : [
     ...appFields,
@@ -2647,11 +2647,15 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
   }
 
   function removeFromCollection(collection, id) {
-    setDraft((current) => ({
-      ...current,
-      [collection]: (current?.[collection] || []).filter((item) => item.id !== id),
-    }));
-    setSelectedEditor({ type: 'photo', id: '' });
+    setDraft((current) => {
+      const nextList = (current?.[collection] || []).filter((item) => item.id !== id);
+      const nextType = collection === 'app_fields' ? 'app' : collection === 'table_items' ? 'item' : 'photo';
+      setSelectedEditor({ type: nextType, id: nextList[0]?.id || '' });
+      return {
+        ...current,
+        [collection]: nextList,
+      };
+    });
     setPreviewIssueId('');
   }
 
@@ -3012,17 +3016,29 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
                         <button type="button" className="mobile-add-mini" onClick={addAppField}><Plus size={16} /> Campo</button>
                       </div>
                       {appFields.map((field) => (
-                        <button
-                          type="button"
+                        <div
                           className={selectedEditor.type === 'app' && selectedEditor.id === field.id ? 'mobile-field-preview selected' : 'mobile-field-preview'}
                           key={field.id}
-                          onClick={() => setSelectedEditor({ type: 'app', id: field.id })}
                         >
+                          <button type="button" className="mobile-field-preview-main" onClick={() => setSelectedEditor({ type: 'app', id: field.id })}>
                           <strong>{field.label}</strong>
                           <span>{field.placeholder || field.label}</span>
                           <small>{['plate', 'truck_plate', 'trailer_plate'].includes(field.field_type) ? 'Formato: ABC-1234 ou ABC-1D23' : field.required ? 'Campo obrigatório' : 'Opcional'}</small>
-                        </button>
+                          </button>
+                          <button
+                            type="button"
+                            className="mobile-field-preview-delete"
+                            onClick={() => removeFromCollection('app_fields', field.id)}
+                            title="Remover campo"
+                            aria-label={`Remover ${field.label}`}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
                       ))}
+                      {!appFields.length && (
+                        <p className="muted">Nenhum campo na Tela 1. Use "Campo" para adicionar somente o que for necessÃ¡rio.</p>
+                      )}
                     </div>
                   </div>
                 </section>
@@ -3031,7 +3047,7 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
                   <div className="requirements-section">
                     <div className="requirements-section-title">
                       <h2>Editar campo da Tela 1</h2>
-                      {selectedAppField && !['driver_name', 'truck_plate', 'trailer_plate'].includes(selectedAppField.id) && (
+                      {selectedAppField && (
                         <button type="button" className="danger-icon-button" onClick={() => removeFromCollection('app_fields', selectedAppField.id)} title="Remover campo"><Trash2 size={16} /></button>
                       )}
                     </div>
@@ -3039,7 +3055,7 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
                       <div className="visual-config-fields">
                         <label>Nome do campo<input value={selectedAppField.label || ''} onChange={(event) => updateCollection('app_fields', selectedAppField.id, { label: event.target.value })} /></label>
                         <label>Tipo
-                          <select value={selectedAppField.field_type || 'text'} onChange={(event) => updateCollection('app_fields', selectedAppField.id, { field_type: event.target.value })} disabled={['driver_name', 'truck_plate', 'trailer_plate'].includes(selectedAppField.id)}>
+                          <select value={selectedAppField.field_type || 'text'} onChange={(event) => updateCollection('app_fields', selectedAppField.id, { field_type: event.target.value })}>
                             <option value="text">Texto</option>
                             <option value="number">Número</option>
                             <option value="driver">Nome do motorista</option>

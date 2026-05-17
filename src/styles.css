@@ -2466,15 +2466,45 @@ button:disabled {
 }
 
 .mobile-field-preview {
+  position: relative;
   width: 100%;
   display: grid;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 14px 48px 14px 16px;
   border: 1px solid #d8e2ee;
   border-radius: 10px;
   color: #485a74;
   background: #fff;
   text-align: left;
+}
+
+.mobile-field-preview-main {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.mobile-field-preview-delete {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  color: #e11d48;
+  background: #fff5f6;
+}
+
+.mobile-field-preview-delete:hover {
+  background: #ffe4e6;
 }
 
 .mobile-field-preview.selected {

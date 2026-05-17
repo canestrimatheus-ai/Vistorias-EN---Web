@@ -412,9 +412,9 @@ function normalizeCategory(input, previous, pdfModels = defaultPdfModels()) {
       ...(previous?.pdf || {}),
       ...(input.pdf || {}),
     },
-    app_fields: (input.app_fields?.length ? input.app_fields : previous?.app_fields || []).map(normalizeAppField),
-    photo_fields: (input.photo_fields?.length ? input.photo_fields : previous?.photo_fields || []).map(normalizePhotoField),
-    table_items: (input.table_items?.length ? input.table_items : previous?.table_items || []).map(normalizeTableItem),
+    app_fields: (Object.prototype.hasOwnProperty.call(input, 'app_fields') ? input.app_fields || [] : previous?.app_fields || []).map(normalizeAppField),
+    photo_fields: (Object.prototype.hasOwnProperty.call(input, 'photo_fields') ? input.photo_fields || [] : previous?.photo_fields || []).map(normalizePhotoField),
+    table_items: (Object.prototype.hasOwnProperty.call(input, 'table_items') ? input.table_items || [] : previous?.table_items || []).map(normalizeTableItem),
     active: input.active !== false,
     permissions: {
       create: normalizeRoleList(permissions.create, ['admin']),
