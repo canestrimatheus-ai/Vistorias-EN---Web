@@ -91,7 +91,7 @@ function defaultPdfConfig(subtitle = 'AUTOCHECK MATRIZ') {
     code: '',
     unit: 'Matriz',
     frequency: 'A cada vistoria',
-    company: 'Express One Pomuceno',
+    company: 'Expresso Nepomuceno',
     logo_url: '/logo-en.png',
     primary_color: '#0b74de',
     footer: 'Relatório gerado pelo sistema Vistorias | EN',
@@ -620,7 +620,7 @@ export default async function handler(request, response) {
       const duplicate = baseModels.some((model) => (
         model.id !== nextModel.id && slugify(model.name) === slugify(nextModel.name)
       ));
-      if (duplicate) throw new Error('Ja existe um modelo de PDF com este nome.');
+      if (duplicate) throw new Error('Já existe um modelo de PDF com este nome.');
       const pdf_models = [nextModel, ...baseModels.filter((model) => model.id !== nextModel.id)];
       await saveConfig(admin, { ...config, pdf_models });
       json(response, 200, { pdf_model: nextModel });
@@ -667,7 +667,7 @@ export default async function handler(request, response) {
         category.id !== nextCategory.id
         && slugify(category.name || category.slug) === nextCategory.slug
       ));
-      if (duplicate) throw new Error('Ja existe uma categoria com este nome.');
+      if (duplicate) throw new Error('Já existe uma categoria com este nome.');
       const categories = [
         nextCategory,
         ...baseCategories.filter((category) => category.id !== nextCategory.id),
@@ -688,7 +688,7 @@ export default async function handler(request, response) {
 
     if (action === 'delete-category') {
       const inUse = (config.models || []).some((model) => model.category_id === body.id);
-      if (inUse) throw new Error('Esta categoria ja esta em uso por um modelo. Inative a categoria em vez de excluir.');
+      if (inUse) throw new Error('Esta categoria já está em uso por um modelo. Inative a categoria em vez de excluí-la.');
       const { data: inspections } = await admin.from('inspections').select('id,type,applicable').limit(1000);
       const usedByInspection = (inspections || []).some((inspection) => {
         const categoryId = inspection.applicable?.__checklist_model?.category_id;
@@ -705,7 +705,7 @@ export default async function handler(request, response) {
       return;
     }
 
-    json(response, 400, { error: 'Acao invalida.' });
+    json(response, 400, { error: 'Ação inválida.' });
   } catch (error) {
     json(response, 400, { error: error.message || 'Não foi possível processar os modelos.' });
   }

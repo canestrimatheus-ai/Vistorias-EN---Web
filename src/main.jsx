@@ -51,9 +51,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
     detectSessionInUrl: false,
   },
 });
-const LOGO_URL = '/logo-en.png';
-const REPORT_LOGO_URL = '/logo-en.png';
-const HERO_IMAGE_URL = '/login-hero.jpeg';
+const BASE_URL = import.meta.env.BASE_URL || '/';
+const API_BASE = BASE_URL.replace(/\/$/, '');
+const LOGO_URL = `${BASE_URL}logo-en.png`.replace(/\/\//g, '/');
+const REPORT_LOGO_URL = `${BASE_URL}logo-en.png`.replace(/\/\//g, '/');
+const HERO_IMAGE_URL = `${BASE_URL}login-hero.jpeg`.replace(/\/\//g, '/');
 const INITIAL_ADMIN_EMAIL = 'admin@expressonepomuceno.com.br';
 const PROFILE_LOAD_TIMEOUT_MS = 8000;
 const REALTIME_REFRESH_DEBOUNCE_MS = 1500;
@@ -804,7 +806,7 @@ function App() {
       throw new Error('Sessão inválida. Entre novamente.');
     }
 
-    const response = await fetch('/api/repair-auth-session', {
+    const response = await fetch(`${API_BASE}/api/repair-auth-session`, {
       method: 'POST',
       credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
@@ -828,7 +830,8 @@ function App() {
 
     const request = (accessToken) => {
       const body = options.body ? JSON.parse(options.body) : {};
-      return fetch(path, {
+      const url = path.startsWith('http') ? path : `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+      return fetch(url, {
         ...options,
         method: options.method || 'POST',
         credentials: 'omit',
@@ -873,7 +876,7 @@ function App() {
     if (!token) return null;
 
     try {
-      const response = await fetch('/api/session-profile', {
+      const response = await fetch(`${API_BASE}/api/session-profile`, {
         method: 'POST',
         credentials: 'omit',
         headers: { 'Content-Type': 'application/json' },
@@ -913,7 +916,7 @@ function App() {
     const token = sourceSession?.access_token;
     if (!token) return;
 
-    await fetch('/api/manage-user', {
+    await fetch(`${API_BASE}/api/manage-user`, {
       method: 'POST',
       credentials: 'omit',
       headers: {
@@ -1720,7 +1723,7 @@ function ProfileModal({ profile, onClose, onSaved }) {
 
     const token = getStoredSession()?.access_token;
 
-    await fetch('/api/manage-user', {
+    await fetch(`${API_BASE}/api/manage-user`, {
       method: 'POST',
       credentials: 'omit',
       headers: {
@@ -2506,7 +2509,7 @@ function LoginScreen() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/web-login', {
+      const response = await fetch(`${API_BASE}/api/web-login`, {
         method: 'POST',
         credentials: 'omit',
         headers: { 'Content-Type': 'application/json' },
@@ -2829,7 +2832,7 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
           {
             id,
             code: `A.${String(list.length + 1).padStart(2, '0')}`,
-            label: 'Nova foto obrigatoria',
+            label: 'Nova foto obrigatória',
             required: true,
             min_photos: 1,
             max_photos: 1,
@@ -3507,7 +3510,7 @@ function AccessPanel({ profiles, onChanged, currentUserId, onConfirm }) {
   async function callUserApi(payload) {
     const token = getStoredSession()?.access_token;
 
-    const result = await fetch('/api/manage-user', {
+    const result = await fetch(`${API_BASE}/api/manage-user`, {
       method: 'POST',
       credentials: 'omit',
       headers: {
@@ -3921,7 +3924,7 @@ function ReportPreview({ inspection }) {
         <ReportSignature paths={signaturePaths} label={signatureField?.label || pdfConfig.signature_label} />
 
         <footer className="pdf-footer">
-          <span>Formulario: <strong>F-PODEC000-01</strong> - Revisao: 9</span>
+          <span>Formulário: <strong>F-PODEC000-01</strong> - Revisão: 9</span>
           <span>Gerado em: <strong>{generatedAt}</strong></span>
         </footer>
       </section>
@@ -3930,10 +3933,10 @@ function ReportPreview({ inspection }) {
         <section className="pdf-page annex-page">
           <div className="photo-placeholder">
             <Eye size={30} />
-            <span>As fotos aparecerao aqui quando estiverem salvas no Storage.</span>
+            <span>As fotos aparecerão aqui quando estiverem salvas no Storage.</span>
           </div>
           <footer className="pdf-footer">
-            <span>Formulario: <strong>F-PODEC000-01</strong> - Revisao: 9</span>
+            <span>Formulário: <strong>F-PODEC000-01</strong> - Revisão: 9</span>
             <span>Gerado em: <strong>{generatedAt}</strong></span>
           </footer>
         </section>
@@ -3962,7 +3965,7 @@ function ReportPreview({ inspection }) {
             </article>
           ))}
           <footer className="pdf-footer">
-            <span>Formulario: <strong>F-PODEC000-01</strong> - Revisao: 9</span>
+            <span>Formulário: <strong>F-PODEC000-01</strong> - Revisão: 9</span>
             <span>Gerado em: <strong>{generatedAt}</strong></span>
           </footer>
         </section>
