@@ -3832,6 +3832,19 @@ function chunkItems(items, size) {
   return chunks;
 }
 
+function resolvePhotoUrl(photo) {
+  if (!photo) return '';
+  let url = photo.public_url || photo.storage_path || '';
+  if (!url) return '';
+  if (url.includes('172.18.0.1')) {
+    url = url.replace(/^http:\/\/[^/]+(?::\d+)?/, SUPABASE_URL.replace(/\/$/, ''));
+  }
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  return `${SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/public/inspection-photos/${url.replace(/^\/+/, '')}`;
+}
+
 function ReportPreview({ inspection }) {
   const photos = inspection.inspection_photos || [];
   const annexGroups = groupAnnexPhotos(photos);
@@ -3946,11 +3959,12 @@ function ReportPreview({ inspection }) {
             <article className="annex-photo" key={group.code}>
               <div className="annex-strip">{group.code} - {group.label}</div>
               <div className={`annex-photo-grid ${group.photos.length === 1 ? 'single' : ''}`}>
-                {group.photos.map((photo, index) => (
-                  (photo.storage_path || photo.public_url) ? (
+                {group.photos.map((photo, index) => {
+                  const photoUrl = resolvePhotoUrl(photo);
+                  return photoUrl ? (
                     <img
                       key={photo.id || `${group.code}-${index}`}
-                      src={photo.public_url || photo.storage_path}
+                      src={photoUrl}
                       alt={`${group.label} ${index + 1}`}
                       crossOrigin="anonymous"
                     />
@@ -3959,8 +3973,8 @@ function ReportPreview({ inspection }) {
                       <span>{group.label}</span>
                       <small>Foto registrada no app. Falta upload para Storage para exibir no painel.</small>
                     </div>
-                  )
-                ))}
+                  );
+                })}
               </div>
             </article>
           ))}

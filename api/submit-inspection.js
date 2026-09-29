@@ -70,11 +70,11 @@ async function ensurePhotoBucket(admin) {
   if (photoBucketReady) return;
   const { data: buckets } = await admin.storage.listBuckets();
   if ((buckets || []).some((bucket) => bucket.name === 'inspection-photos')) {
-    await admin.storage.updateBucket('inspection-photos', { public: false });
+    await admin.storage.updateBucket('inspection-photos', { public: true });
     photoBucketReady = true;
     return;
   }
-  await admin.storage.createBucket('inspection-photos', { public: false });
+  await admin.storage.createBucket('inspection-photos', { public: true });
   photoBucketReady = true;
 }
 

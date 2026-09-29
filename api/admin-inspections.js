@@ -231,6 +231,8 @@ async function enrichInspections(admin, inspections) {
     : { data: [] };
   const profileMap = new Map((profileData || []).map((profile) => [profile.id, profile]));
 
+  const publicSupabaseUrl = process.env.PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://decamservice.com/vistorias-api';
+
   return Promise.all((inspections || []).map(async (inspection) => ({
     ...inspection,
     inspector_name: profileMap.get(inspection.user_id)?.full_name || profileMap.get(inspection.user_id)?.email || '',
@@ -239,8 +241,14 @@ async function enrichInspections(admin, inspections) {
       if (!photo.storage_path) return photo;
       const { data: signedUrl } = await admin.storage
         .from('inspection-photos')
-        .createSignedUrl(photo.storage_path, 60 * 60);
-      return { ...photo, public_url: signedUrl?.signedUrl || '' };
+        .createSignedUrl(photo.storage_path, 60 * 60 * 24);
+      let finalUrl = signedUrl?.signedUrl || '';
+      if (finalUrl) {
+        finalUrl = finalUrl.replace(/^http:\/\/[^/]+(?::\d+)?/, publicSupabaseUrl.replace(/\/$/, ''));
+      } else {
+        finalUrl = `${publicSupabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/inspection-photos/${photo.storage_path}`;
+      }
+      return { ...photo, public_url: finalUrl };
     })),
   })));
 }
