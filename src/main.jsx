@@ -88,7 +88,7 @@ function inspectionCategoryInfo(inspection = {}) {
   const model = inspection.applicable?.__checklist_model || {};
   return {
     id: model.category_id || model.category?.id || '',
-    name: model.category?.name || '',
+    name: model.category?.name || model.category_name || '',
     type: inspection.type || '',
   };
 }
@@ -96,8 +96,13 @@ function inspectionCategoryInfo(inspection = {}) {
 function inspectionMatchesCategory(inspection, category) {
   if (!category) return false;
   const info = inspectionCategoryInfo(inspection);
-  if (info.id && info.id === category.id) return true;
 
+  // Se a vistoria tem categoria explicitamente definida, ela pertence exclusivamente a essa categoria
+  if (info.id) {
+    return info.id === category.id;
+  }
+
+  // Fallback apenas para vistorias antigas/legadas sem id de categoria no snapshot
   const keys = new Set([
     normalizeRouteKey(info.name),
     normalizeRouteKey(info.type),
@@ -163,7 +168,7 @@ const INSPECTION_ICON_OPTIONS = [
 
 const DEFAULT_APP_STEP_FIELDS = [
   { id: 'truck_plate', label: 'Placa cavalo', field_type: 'truck_plate', required: true, active: true, show_in_app: true, show_in_pdf: true, order: 1 },
-  { id: 'trailer_plate', label: 'Placa carreta', field_type: 'trailer_plate', required: true, active: true, show_in_app: true, show_in_pdf: true, order: 2 },
+  { id: 'trailer_plate', label: 'Placa carreta', field_type: 'trailer_plate', required: false, active: true, show_in_app: true, show_in_pdf: true, order: 2 },
   { id: 'driver_name', label: 'Nome do motorista', field_type: 'driver', required: true, active: true, show_in_app: true, show_in_pdf: true, order: 3 },
 ];
 
@@ -362,6 +367,38 @@ async function createPdfExportClone(root) {
   }));
   await waitForImages(clone);
 
+  // Preserva estritamente o aspect-ratio original das fotos para que o html2canvas não as achate
+  clonedImages.forEach((image) => {
+    if (image.closest('.annex-photo-grid') || image.closest('.annex-photo')) {
+      const naturalWidth = image.naturalWidth || image.width;
+      const naturalHeight = image.naturalHeight || image.height;
+      if (naturalWidth && naturalHeight) {
+        const grid = image.closest('.annex-photo-grid');
+        const isSingle = grid?.classList.contains('single') || !grid;
+        // Limites máximos disponíveis na página A4 (largura útil: 758px)
+        const maxWidth = isSingle ? 758 : 370;
+        const maxHeight = isSingle ? 430 : 380;
+
+        const ratio = naturalWidth / naturalHeight;
+        let targetWidth = maxWidth;
+        let targetHeight = targetWidth / ratio;
+
+        if (targetHeight > maxHeight) {
+          targetHeight = maxHeight;
+          targetWidth = targetHeight * ratio;
+        }
+
+        image.style.width = `${Math.round(targetWidth)}px`;
+        image.style.height = `${Math.round(targetHeight)}px`;
+        image.style.maxWidth = 'none';
+        image.style.maxHeight = 'none';
+        image.style.objectFit = 'contain';
+        image.style.display = 'block';
+        image.style.margin = '0 auto';
+      }
+    }
+  });
+
   return { host, clone };
 }
 
@@ -382,7 +419,7 @@ async function downloadInspectionPdf(inspection) {
       const height = page.offsetHeight;
       const canvas = await html2canvas(page, {
         backgroundColor: '#ffffff',
-        scale: 1.05,
+        scale: 2.0, // Alta resolução (HD) para fotos e textos super nítidos
         useCORS: false,
         allowTaint: true,
         logging: false,
@@ -393,7 +430,7 @@ async function downloadInspectionPdf(inspection) {
         scrollX: 0,
         scrollY: 0,
       });
-      const imageData = canvas.toDataURL('image/jpeg', 0.72);
+      const imageData = canvas.toDataURL('image/jpeg', 0.92);
       if (index > 0) pdf.addPage();
       pdf.addImage(imageData, 'JPEG', 0, 0, PDF_PAGE_WIDTH_MM, PDF_PAGE_HEIGHT_MM, undefined, 'FAST');
     }
@@ -658,7 +695,12 @@ function App() {
 
     const inspection = inspections.find((item) => item.id === notification.recordId) || notification.record;
     if (inspection) {
-      setActiveView(isAutocheckInspection(inspection) ? 'autocheck' : 'inspector');
+      const info = inspectionCategoryInfo(inspection);
+      if (info.id) {
+        setActiveView(categoryViewId(info.id));
+      } else {
+        setActiveView(isAutocheckInspection(inspection) ? 'autocheck' : 'inspector');
+      }
       openInspection(inspection);
     }
   }
@@ -1140,7 +1182,11 @@ function App() {
     const profileMap = new Map(profiles.map((item) => [item.id, item]));
     const groups = new Map();
 
-    inspections.filter((inspection) => !isAutocheckInspection(inspection)).forEach((inspection) => {
+    inspections.filter((inspection) => {
+      const info = inspectionCategoryInfo(inspection);
+      if (info.id) return info.id === 'aggregates';
+      return !isAutocheckInspection(inspection) && !String(inspection.type || '').toLowerCase().includes('agendada');
+    }).forEach((inspection) => {
       const inspectorId = inspection.user_id || 'unknown';
       const profileData = profileMap.get(inspectorId);
       const group = groups.get(inspectorId) || {
@@ -1157,7 +1203,7 @@ function App() {
       const total = group.inspections.length;
       const approved = group.inspections.filter((item) => item.status === 'approved').length;
       const rejected = group.inspections.filter((item) => item.status === 'rejected').length;
-      const completed = group.inspections.filter((item) => ['completed', 'approved'].includes(item.status)).length;
+      const completed = approved;
       const pending = group.inspections.filter((item) => !['approved', 'rejected'].includes(item.status)).length;
       return {
         ...group,
@@ -1220,7 +1266,7 @@ function App() {
         const total = group.inspections.length;
         const approved = group.inspections.filter((item) => item.status === 'approved').length;
         const rejected = group.inspections.filter((item) => item.status === 'rejected').length;
-        const completed = group.inspections.filter((item) => ['completed', 'approved'].includes(item.status)).length;
+        const completed = approved;
         const pending = group.inspections.filter((item) => !['approved', 'rejected'].includes(item.status)).length;
         return { ...group, total, approved, rejected, completed, pending };
       }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')));
@@ -1232,7 +1278,11 @@ function App() {
   const autocheckGroups = useMemo(() => {
     const groups = new Map();
 
-    inspections.filter(isAutocheckInspection).forEach((inspection) => {
+    inspections.filter((inspection) => {
+      const info = inspectionCategoryInfo(inspection);
+      if (info.id) return info.id === 'autocheck';
+      return isAutocheckInspection(inspection);
+    }).forEach((inspection) => {
       const driverName = inspection.driver_name || 'Motorista sem nome';
       const group = groups.get(driverName) || {
         id: driverName,
@@ -1248,7 +1298,7 @@ function App() {
       const total = group.inspections.length;
       const approved = group.inspections.filter((item) => item.status === 'approved').length;
       const rejected = group.inspections.filter((item) => item.status === 'rejected').length;
-      const completed = group.inspections.filter((item) => ['completed', 'approved'].includes(item.status)).length;
+      const completed = approved;
       const pending = group.inspections.filter((item) => !['approved', 'rejected'].includes(item.status)).length;
       return {
         ...group,
@@ -1592,7 +1642,7 @@ function NotificationBell({ notifications, open, onToggle, onOpen }) {
 function HomeDashboard({ profile, inspections, schedules, groups, onOpenInspector }) {
   const totals = {
     total: inspections.length,
-    completed: inspections.filter((item) => ['completed', 'approved'].includes(item.status)).length,
+    completed: inspections.filter((item) => item.status === 'approved').length,
     pending: inspections.filter((item) => !['approved', 'rejected'].includes(item.status)).length,
     rejected: inspections.filter((item) => item.status === 'rejected').length,
     scheduled: schedules.filter((item) => !['completed', 'cancelled'].includes(item.status)).length,
@@ -1790,7 +1840,7 @@ function InspectorChecklists({ inspector, selected, setSelected, setInspectionSt
   const counts = {
     pending: inspections.filter((item) => !['approved', 'rejected'].includes(item.status)).length,
     rejected: inspections.filter((item) => item.status === 'rejected').length,
-    completed: inspections.filter((item) => ['completed', 'approved'].includes(item.status)).length,
+    completed: inspections.filter((item) => item.status === 'approved').length,
   };
 
   if (!inspector) {
@@ -1831,7 +1881,7 @@ function InspectorChecklists({ inspector, selected, setSelected, setInspectionSt
       <header className="checklists-header">
         <div>
           <h1>{inspector.name}</h1>
-          <p>{inspector.email || 'Vistoriador'} Â· {inspections.length} checklist(s)</p>
+          <p>{inspector.email || 'Vistoriador'} · {inspections.length} checklist(s)</p>
         </div>
       </header>
       <div className="status-strip">
@@ -1848,7 +1898,7 @@ function InspectorChecklists({ inspector, selected, setSelected, setInspectionSt
               <strong>{inspection.driver_name || 'Motorista não informado'}</strong>
               <em>{inspection.truck_plate || 'Sem cavalo'} / {inspection.trailer_plate || 'Sem carreta'}</em>
             </div>
-            <p>{statusLabel(inspection.status)}</p>
+            <p className={`status-pill ${inspection.status}`}>{statusLabel(inspection.status)}</p>
             <time>{formatDate(inspection.created_at)}</time>
           </button>
         ))}
@@ -1898,7 +1948,7 @@ function ChecklistsWorkspace({
   const counts = {
     pending: inspections.filter((item) => !['approved', 'rejected'].includes(item.status)).length,
     rejected: inspections.filter((item) => item.status === 'rejected').length,
-    completed: inspections.filter((item) => ['completed', 'approved'].includes(item.status)).length,
+    completed: inspections.filter((item) => item.status === 'approved').length,
   };
 
   useEffect(() => {
@@ -2048,7 +2098,7 @@ function ChecklistsWorkspace({
                   <strong>{inspection.driver_name || 'Motorista não informado'}</strong>
                   <em>{inspection.truck_plate || 'Sem cavalo'} / {inspection.trailer_plate || 'Sem carreta'}</em>
                 </div>
-                <p>{statusLabel(inspection.status)}</p>
+                <p className={`status-pill ${inspection.status}`}>{statusLabel(inspection.status)}</p>
                 <time>{formatDate(inspection.created_at)}</time>
               </button>
               <button className="row-delete" type="button" onClick={() => deleteSelected([inspection.id])} title="Excluir vistoria">
@@ -2594,6 +2644,7 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [selectedScreen, setSelectedScreen] = useState('screen2');
+  const [pdfTab, setPdfTab] = useState('header');
   const [selectedEditor, setSelectedEditor] = useState({ type: 'photo', id: '' });
   const [previewIssueId, setPreviewIssueId] = useState('');
   const [newDraftOpen, setNewDraftOpen] = useState(false);
@@ -2644,7 +2695,7 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
     setDraft((current) => ({ ...current, ...patch }));
   }
 
-  function updatePdfHeader(patch) {
+  function updatePdf(patch) {
     setDraft((current) => ({
       ...current,
       pdf: {
@@ -2653,6 +2704,7 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
       },
     }));
   }
+  const updatePdfHeader = updatePdf;
 
   function selectedPdfModel() {
     return pdfModels.find((model) => model.id === draft?.pdf_model_id) || pdfModels[0] || null;
@@ -3408,25 +3460,296 @@ function RequirementsPanel({ config, onReload, onSaveCategory, onDeleteCategory,
 
             {selectedScreen === 'pdf' && (
             <div className="pdf-config-grid">
-              <section className="pdf-live-preview" aria-label="Preview do cabeçalho do PDF">
+              <section className="pdf-live-preview" aria-label="Preview do relatório PDF">
                 <PdfHeaderPreview pdf={previewPdf} typeName={draft.name} />
               </section>
               <div className="requirements-section pdf-header-editor">
-              <div className="requirements-section-title">
-                <div>
-                  <h2>Cabeçalho do PDF</h2>
-                  <p className="section-hint">Somente o cabeçalho será alterado. Tabela, assinaturas e anexos continuam no padrão atual.</p>
+                <div className="requirements-section-title">
+                  <div>
+                    <h2>Configuração do Relatório PDF</h2>
+                    <p className="section-hint">Personalize cada detalhe do PDF: textos, colunas da tabela, assinaturas e rodapé.</p>
+                  </div>
+                  <InfoTip text="Estas informações definem o visual e os textos de todos os relatórios PDF gerados para este tipo de vistoria." />
                 </div>
-                <InfoTip text="Estas informações aparecem no topo do relatório PDF gerado para este tipo de vistoria." />
-              </div>
-              <div className="pdf-header-fields">
-                <label>Título principal<input value={draft.pdf?.title ?? selectedPdfModel()?.pdf?.title ?? ''} onChange={(event) => updatePdfHeader({ title: event.target.value })} /></label>
-                <label>Subtítulo<input value={draft.pdf?.subtitle ?? selectedPdfModel()?.pdf?.subtitle ?? ''} onChange={(event) => updatePdfHeader({ subtitle: event.target.value })} /></label>
-                <label>Unidade<input value={draft.pdf?.unit ?? selectedPdfModel()?.pdf?.unit ?? ''} onChange={(event) => updatePdfHeader({ unit: event.target.value })} /></label>
-                <label>Frequência<input value={draft.pdf?.frequency ?? selectedPdfModel()?.pdf?.frequency ?? ''} onChange={(event) => updatePdfHeader({ frequency: event.target.value })} /></label>
-                <label>Objeto<input value={draft.pdf?.object_label ?? selectedPdfModel()?.pdf?.object_label ?? 'Motorista'} onChange={(event) => updatePdfHeader({ object_label: event.target.value })} /></label>
-                <label>Cor do cabeçalho<input type="color" value={draft.pdf?.primary_color ?? selectedPdfModel()?.pdf?.primary_color ?? '#003d73'} onChange={(event) => updatePdfHeader({ primary_color: event.target.value })} /></label>
-              </div>
+
+                <div className="pdf-tab-buttons">
+                  <button
+                    type="button"
+                    className={`pdf-tab-btn ${pdfTab === 'header' ? 'active' : ''}`}
+                    onClick={() => setPdfTab('header')}
+                  >
+                    📑 Cabeçalho & Metadados
+                  </button>
+                  <button
+                    type="button"
+                    className={`pdf-tab-btn ${pdfTab === 'table' ? 'active' : ''}`}
+                    onClick={() => setPdfTab('table')}
+                  >
+                    📊 Tabela & Colunas
+                  </button>
+                  <button
+                    type="button"
+                    className={`pdf-tab-btn ${pdfTab === 'footer' ? 'active' : ''}`}
+                    onClick={() => setPdfTab('footer')}
+                  >
+                    ✍️ Assinatura & Rodapé
+                  </button>
+                </div>
+
+                {pdfTab === 'header' && (
+                  <div className="pdf-header-fields">
+                    <label>
+                      Título principal
+                      <input
+                        value={draft.pdf?.title ?? selectedPdfModel()?.pdf?.title ?? ''}
+                        placeholder="D-OLHO NA SEGURANÇA - CHECKLIST"
+                        onChange={(event) => updatePdf({ title: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Subtítulo / Tipo de vistoria
+                      <input
+                        value={draft.pdf?.subtitle ?? selectedPdfModel()?.pdf?.subtitle ?? ''}
+                        placeholder={draft.name || 'VISTORIA'}
+                        onChange={(event) => updatePdf({ subtitle: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Unidade
+                      <input
+                        value={draft.pdf?.unit ?? selectedPdfModel()?.pdf?.unit ?? ''}
+                        placeholder="01 - MATRIZ"
+                        onChange={(event) => updatePdf({ unit: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Frequência
+                      <input
+                        value={draft.pdf?.frequency ?? selectedPdfModel()?.pdf?.frequency ?? ''}
+                        placeholder="Mensal"
+                        onChange={(event) => updatePdf({ frequency: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Rótulo do Objeto
+                      <input
+                        value={draft.pdf?.object_label ?? selectedPdfModel()?.pdf?.object_label ?? 'Motorista'}
+                        placeholder="Motorista"
+                        onChange={(event) => updatePdf({ object_label: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Rótulo de Inspecionado
+                      <input
+                        value={draft.pdf?.inspected_label ?? 'Inspecionado'}
+                        placeholder="Inspecionado"
+                        onChange={(event) => updatePdf({ inspected_label: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Rótulo Placa Cavalo
+                      <input
+                        value={draft.pdf?.truck_plate_label ?? 'Placa Cavalo'}
+                        placeholder="Placa Cavalo"
+                        onChange={(event) => updatePdf({ truck_plate_label: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Rótulo Placa Carreta
+                      <input
+                        value={draft.pdf?.trailer_plate_label ?? 'Placa Carreta'}
+                        placeholder="Placa Carreta"
+                        onChange={(event) => updatePdf({ trailer_plate_label: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Cor principal (títulos e barras)
+                      <input
+                        type="color"
+                        value={draft.pdf?.primary_color ?? selectedPdfModel()?.pdf?.primary_color ?? '#003d73'}
+                        onChange={(event) => updatePdf({ primary_color: event.target.value })}
+                      />
+                    </label>
+                    <div style={{ gridColumn: '1 / -1', marginTop: '6px' }}>
+                      <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={draft.pdf?.show_trailer_plate !== false}
+                          onChange={(event) => updatePdf({ show_trailer_plate: event.target.checked })}
+                        />
+                        <span>Exibir campo de Placa Carreta nos metadados</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {pdfTab === 'table' && (
+                  <div className="pdf-header-fields">
+                    <label style={{ gridColumn: '1 / -1' }}>
+                      Título da seção de itens da tabela
+                      <input
+                        value={draft.pdf?.table_section_title ?? '1.00 - Inspeção Interna e Externa do Equipamento'}
+                        placeholder="1.00 - Inspeção Interna e Externa do Equipamento"
+                        onChange={(event) => updatePdf({ table_section_title: event.target.value })}
+                      />
+                    </label>
+                    <label style={{ gridColumn: '1 / -1' }}>
+                      Título da validação final
+                      <input
+                        value={draft.pdf?.validation_title ?? '1.99 - Validação da Vistoria'}
+                        placeholder="1.99 - Validação da Vistoria"
+                        onChange={(event) => updatePdf({ validation_title: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Coluna #
+                      <input
+                        value={draft.pdf?.col_number ?? '#'}
+                        placeholder="#"
+                        onChange={(event) => updatePdf({ col_number: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Coluna Requisito
+                      <input
+                        value={draft.pdf?.col_requirement ?? 'Requisito'}
+                        placeholder="Requisito"
+                        onChange={(event) => updatePdf({ col_requirement: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Coluna Agregador
+                      <input
+                        value={draft.pdf?.col_group ?? 'Agregador'}
+                        placeholder="Agregador"
+                        onChange={(event) => updatePdf({ col_group: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Coluna Resposta
+                      <input
+                        value={draft.pdf?.col_answer ?? 'Resposta'}
+                        placeholder="Resposta"
+                        onChange={(event) => updatePdf({ col_answer: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Coluna Pontos
+                      <input
+                        value={draft.pdf?.col_points ?? 'Pontos'}
+                        placeholder="Pontos"
+                        onChange={(event) => updatePdf({ col_points: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Coluna Data
+                      <input
+                        value={draft.pdf?.col_date ?? 'Data'}
+                        placeholder="Data"
+                        onChange={(event) => updatePdf({ col_date: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Coluna Auditado por
+                      <input
+                        value={draft.pdf?.col_auditor ?? 'Auditado por'}
+                        placeholder="Auditado por"
+                        onChange={(event) => updatePdf({ col_auditor: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Coluna Anexos
+                      <input
+                        value={draft.pdf?.col_attachments ?? 'Anexos'}
+                        placeholder="Anexos"
+                        onChange={(event) => updatePdf({ col_attachments: event.target.value })}
+                      />
+                    </label>
+                    <label style={{ gridColumn: '1 / -1' }}>
+                      Coluna Observação / Justificativa
+                      <input
+                        value={draft.pdf?.col_note ?? 'Observação / Justificativa'}
+                        placeholder="Observação / Justificativa"
+                        onChange={(event) => updatePdf({ col_note: event.target.value })}
+                      />
+                    </label>
+                    <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                      <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={draft.pdf?.show_points !== false}
+                          onChange={(event) => updatePdf({ show_points: event.target.checked })}
+                        />
+                        <span>Exibir coluna de Pontos na tabela</span>
+                      </label>
+                      <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={draft.pdf?.show_group !== false}
+                          onChange={(event) => updatePdf({ show_group: event.target.checked })}
+                        />
+                        <span>Exibir coluna de Agregador na tabela</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {pdfTab === 'footer' && (
+                  <div className="pdf-header-fields">
+                    <div style={{ gridColumn: '1 / -1', marginBottom: '4px' }}>
+                      <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={draft.pdf?.show_signature !== false}
+                          onChange={(event) => updatePdf({ show_signature: event.target.checked })}
+                        />
+                        <span>Exibir bloco de assinatura no relatório</span>
+                      </label>
+                    </div>
+                    <label style={{ gridColumn: '1 / -1' }}>
+                      Rótulo da assinatura
+                      <input
+                        value={draft.pdf?.signature_label ?? 'ASSINATURA DO VISTORIADOR'}
+                        placeholder="ASSINATURA DO VISTORIADOR"
+                        onChange={(event) => updatePdf({ signature_label: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Prefixo do formulário no rodapé
+                      <input
+                        value={draft.pdf?.footer_label ?? 'Formulário'}
+                        placeholder="Formulário"
+                        onChange={(event) => updatePdf({ footer_label: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Código do formulário
+                      <input
+                        value={draft.pdf?.form_code ?? 'F-PODEC000-01'}
+                        placeholder="F-PODEC000-01"
+                        onChange={(event) => updatePdf({ form_code: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Revisão do formulário
+                      <input
+                        value={draft.pdf?.form_revision ?? '9'}
+                        placeholder="9"
+                        onChange={(event) => updatePdf({ form_revision: event.target.value })}
+                      />
+                    </label>
+                    <div style={{ gridColumn: '1 / -1', marginTop: '6px' }}>
+                      <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={draft.pdf?.show_generated_at !== false}
+                          onChange={(event) => updatePdf({ show_generated_at: event.target.checked })}
+                        />
+                        <span>Exibir data e hora de geração no rodapé</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             )}
@@ -3451,12 +3774,43 @@ function PdfHeaderPreview({ pdf, typeName }) {
   const unit = pdf?.unit || '01 - MATRIZ';
   const frequency = pdf?.frequency || 'Mensal';
   const objectLabel = pdf?.object_label || 'Motorista';
+  const inspectedLabel = pdf?.inspected_label || 'Inspecionado';
+  const truckPlateLabel = pdf?.truck_plate_label || 'Placa Cavalo';
+  const trailerPlateLabel = pdf?.trailer_plate_label || 'Placa Carreta';
+  const showTrailerPlate = pdf?.show_trailer_plate !== false;
+
+  const tableSectionTitle = pdf?.table_section_title || '1.00 - Inspeção Interna e Externa do Equipamento';
+  const validationTitle = pdf?.validation_title || '1.99 - Validação da Vistoria';
+
+  const colNumber = pdf?.col_number || '#';
+  const colRequirement = pdf?.col_requirement || 'Requisito';
+  const colGroup = pdf?.col_group || 'Agregador';
+  const colAnswer = pdf?.col_answer || 'Resposta';
+  const colPoints = pdf?.col_points || 'Pontos';
+  const colDate = pdf?.col_date || 'Data';
+  const colAuditor = pdf?.col_auditor || 'Auditado por';
+  const colAttachments = pdf?.col_attachments || 'Anexos';
+  const colNote = pdf?.col_note || 'Observação / Justificativa';
+
+  const showPoints = pdf?.show_points !== false;
+  const showGroup = pdf?.show_group !== false;
+  const showSignature = pdf?.show_signature !== false;
+  const signatureLabel = pdf?.signature_label || 'ASSINATURA DO VISTORIADOR';
+
+  const footerLabel = pdf?.footer_label || 'Formulário';
+  const formCode = pdf?.form_code || 'F-PODEC000-01';
+  const formRevision = pdf?.form_revision || '9';
+  const showGeneratedAt = pdf?.show_generated_at !== false;
+
+  let totalCols = 7;
+  if (showGroup) totalCols += 1;
+  if (showPoints) totalCols += 1;
 
   return (
     <div className="pdf-preview-page">
       <header className="pdf-preview-header">
         <div className="pdf-preview-logo-box">
-          <img src={logo} alt="Logo do relatório" />
+          <img src={logo} alt="Logo do relatório" crossOrigin="anonymous" />
         </div>
         <div className="pdf-preview-title" style={{ color }}>
           <h2>{title}</h2>
@@ -3470,13 +3824,65 @@ function PdfHeaderPreview({ pdf, typeName }) {
         <span>Período: 14/05/2026 a 14/05/2026</span>
         <span>Parecer Final: Concluída</span>
         <span>Objeto: {objectLabel}</span>
-        <span>Inspecionado: teste</span>
-        <span>Placa Cavalo: DPJ0I46</span>
-        <span>Placa Carreta: DPJ0I46</span>
+        <span>{inspectedLabel}: teste</span>
+        <span>{truckPlateLabel}: DPJ0I46</span>
+        {showTrailerPlate && <span>{trailerPlateLabel}: DPJ0I46</span>}
       </div>
-      <div className="pdf-preview-table" aria-hidden="true">
-        <span>#</span><span>Requisito</span><span>Agregador</span><span>Resposta</span><span>Anexos</span>
-        <strong>1.00</strong><strong>Inspeção Interna e Externa do Equipamento</strong><strong>-</strong><strong>Conforme</strong><strong>1</strong>
+      <div className="pdf-preview-table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>{colNumber}</th>
+              <th>{colRequirement}</th>
+              {showGroup && <th>{colGroup}</th>}
+              <th>{colAnswer}</th>
+              {showPoints && <th>{colPoints}</th>}
+              <th>{colDate}</th>
+              <th>{colAuditor}</th>
+              <th>{colAttachments}</th>
+              <th>{colNote}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
+              <td colSpan={totalCols}>{tableSectionTitle}</td>
+            </tr>
+            <tr>
+              <td>1.01</td>
+              <td>Exemplo de Requisito da Vistoria</td>
+              {showGroup && <td>-</td>}
+              <td><span style={{ color: '#10b981', fontWeight: 700 }}>Conforme</span></td>
+              {showPoints && <td>0</td>}
+              <td>14/05/2026 14:00</td>
+              <td>Vistoriador</td>
+              <td>1</td>
+              <td>-</td>
+            </tr>
+            <tr>
+              <td>1.99</td>
+              <td>{validationTitle}</td>
+              {showGroup && <td>-</td>}
+              <td><span style={{ color: '#10b981', fontWeight: 700 }}>Conforme</span></td>
+              {showPoints && <td>0</td>}
+              <td>14/05/2026 14:02</td>
+              <td>Vistoriador</td>
+              <td>-</td>
+              <td>Vistoria aprovada</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {showSignature && (
+        <div className="pdf-preview-signature">
+          <div className="sig-line" />
+          <p>{signatureLabel}</p>
+        </div>
+      )}
+
+      <div className="pdf-preview-footer">
+        <span>{footerLabel}: <strong>{formCode}</strong> - Revisão: <strong>{formRevision}</strong></span>
+        {showGeneratedAt && <span>Gerado em: <strong>14/05/2026 14:02:40</strong></span>}
       </div>
     </div>
   );
@@ -3854,7 +4260,11 @@ function ReportPreview({ inspection }) {
   const auditedBy = inspection.inspector_name || inspection.inspector_email || 'Vistoriador';
   const signaturePaths = normalizeSignaturePaths(inspection.signature_data);
   const modelSnapshot = inspection.applicable?.__checklist_model?.snapshot || {};
-  const pdfConfig = modelSnapshot.pdf || {};
+  const categoryPdf = inspection.applicable?.__checklist_model?.category?.pdf || {};
+  const pdfConfig = {
+    ...categoryPdf,
+    ...(modelSnapshot.pdf || {}),
+  };
   const signatureField = (modelSnapshot.app_fields || []).find((item) => item.field_type === 'signature');
   const reportKind = pdfConfig.subtitle || inspection.applicable?.__checklist_model?.category?.name || (isAutocheckInspection(inspection) ? 'AUTOCHECK MATRIZ' : 'VISTORIA AGENDADA');
   const pdfTitle = pdfConfig.title || 'D-OLHO NA SEGURANÇA - CHECKLIST';
@@ -3863,6 +4273,37 @@ function ReportPreview({ inspection }) {
   const pdfUnit = pdfConfig.unit || '01 - MATRIZ';
   const pdfFrequency = pdfConfig.frequency || 'Mensal';
   const pdfObject = pdfConfig.object_label || 'Motorista';
+  const inspectedLabel = pdfConfig.inspected_label || 'Inspecionado';
+  const truckPlateLabel = pdfConfig.truck_plate_label || 'Placa Cavalo';
+  const trailerPlateLabel = pdfConfig.trailer_plate_label || 'Placa Carreta';
+  const showTrailerPlate = pdfConfig.show_trailer_plate !== false;
+
+  const tableSectionTitle = pdfConfig.table_section_title || '1.00 - Inspeção Interna e Externa do Equipamento';
+  const validationTitle = pdfConfig.validation_title || '1.99 - Validação da Vistoria';
+
+  const colNumber = pdfConfig.col_number || '#';
+  const colRequirement = pdfConfig.col_requirement || 'Requisito';
+  const colGroup = pdfConfig.col_group || 'Agregador';
+  const colAnswer = pdfConfig.col_answer || 'Resposta';
+  const colPoints = pdfConfig.col_points || 'Pontos';
+  const colDate = pdfConfig.col_date || 'Data';
+  const colAuditor = pdfConfig.col_auditor || 'Auditado por';
+  const colAttachments = pdfConfig.col_attachments || 'Anexos';
+  const colNote = pdfConfig.col_note || 'Observação / Justificativa';
+
+  const showPoints = pdfConfig.show_points !== false;
+  const showGroup = pdfConfig.show_group !== false;
+  const showSignature = pdfConfig.show_signature !== false;
+  const signatureLabel = signatureField?.label || pdfConfig.signature_label || 'ASSINATURA DO VISTORIADOR';
+
+  const footerLabel = pdfConfig.footer_label || 'Formulário';
+  const formCode = pdfConfig.form_code || 'F-PODEC000-01';
+  const formRevision = pdfConfig.form_revision || '9';
+  const showGeneratedAt = pdfConfig.show_generated_at !== false;
+
+  let totalCols = 7;
+  if (showGroup) totalCols += 1;
+  if (showPoints) totalCols += 1;
 
   return (
     <div className="print-document">
@@ -3884,36 +4325,36 @@ function ReportPreview({ inspection }) {
           <span>Período: {formatDate(inspection.created_at)} a {formatDate(inspection.created_at)}</span>
           <span>Parecer Final: {statusLabel(inspection.status)}</span>
           <span>Objeto: {pdfObject}</span>
-          <span>Inspecionado: {inspection.driver_name || '-'}</span>
-          <span>Placa Cavalo: {inspection.truck_plate || '-'}</span>
-          <span>Placa Carreta: {inspection.trailer_plate || '-'}</span>
+          <span>{inspectedLabel}: {inspection.driver_name || '-'}</span>
+          <span>{truckPlateLabel}: {inspection.truck_plate || '-'}</span>
+          {showTrailerPlate && <span>{trailerPlateLabel}: {inspection.trailer_plate || '-'}</span>}
         </div>
 
         <table className="report-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Requisito</th>
-              <th>Agregador</th>
-              <th>Resposta</th>
-              <th>Pontos</th>
-              <th>Data</th>
-              <th>Auditado por</th>
-              <th>Anexos</th>
-              <th>Observação / Justificativa</th>
+              <th>{colNumber}</th>
+              <th>{colRequirement}</th>
+              {showGroup && <th>{colGroup}</th>}
+              <th>{colAnswer}</th>
+              {showPoints && <th>{colPoints}</th>}
+              <th>{colDate}</th>
+              <th>{colAuditor}</th>
+              <th>{colAttachments}</th>
+              <th>{colNote}</th>
             </tr>
           </thead>
           <tbody>
             <tr className="section-row">
-              <td colSpan="9">1.00 - Inspeção Interna e Externa do Equipamento</td>
+              <td colSpan={totalCols}>{tableSectionTitle}</td>
             </tr>
             {rows.map((row, index) => (
               <tr key={row.number}>
                 <td>{row.number}</td>
                 <td>{row.requirement}</td>
-                <td>{row.group}</td>
+                {showGroup && <td>{row.group}</td>}
                 <td>{row.answer}</td>
-                <td>0</td>
+                {showPoints && <td>0</td>}
                 <td>{formatDateTime(inspection.created_at)}</td>
                 <td>{auditedBy}</td>
                 <td>{row.attachments.length ? row.attachments.join(', ') : '-'}</td>
@@ -3922,10 +4363,10 @@ function ReportPreview({ inspection }) {
             ))}
             <tr>
               <td>1.99</td>
-              <td>Validação da Vistoria</td>
-              <td>-</td>
+              <td>{validationTitle}</td>
+              {showGroup && <td>-</td>}
               <td>{statusLabel(inspection.status)}</td>
-              <td>0</td>
+              {showPoints && <td>0</td>}
               <td>{formatDateTime(inspection.created_at)}</td>
               <td>{auditedBy}</td>
               <td>-</td>
@@ -3934,11 +4375,13 @@ function ReportPreview({ inspection }) {
           </tbody>
         </table>
 
-        <ReportSignature paths={signaturePaths} label={signatureField?.label || pdfConfig.signature_label} />
+        {showSignature && (
+          <ReportSignature paths={signaturePaths} label={signatureLabel} />
+        )}
 
         <footer className="pdf-footer">
-          <span>Formulário: <strong>F-PODEC000-01</strong> - Revisão: 9</span>
-          <span>Gerado em: <strong>{generatedAt}</strong></span>
+          <span>{footerLabel}: <strong>{formCode}</strong> - Revisão: <strong>{formRevision}</strong></span>
+          {showGeneratedAt && <span>Gerado em: <strong>{generatedAt}</strong></span>}
         </footer>
       </section>
 
@@ -3949,8 +4392,8 @@ function ReportPreview({ inspection }) {
             <span>As fotos aparecerão aqui quando estiverem salvas no Storage.</span>
           </div>
           <footer className="pdf-footer">
-            <span>Formulário: <strong>F-PODEC000-01</strong> - Revisão: 9</span>
-            <span>Gerado em: <strong>{generatedAt}</strong></span>
+            <span>{footerLabel}: <strong>{formCode}</strong> - Revisão: <strong>{formRevision}</strong></span>
+            {showGeneratedAt && <span>Gerado em: <strong>{generatedAt}</strong></span>}
           </footer>
         </section>
       ) : annexPages.map((pageGroups, pageIndex) => (
@@ -3979,8 +4422,8 @@ function ReportPreview({ inspection }) {
             </article>
           ))}
           <footer className="pdf-footer">
-            <span>Formulário: <strong>F-PODEC000-01</strong> - Revisão: 9</span>
-            <span>Gerado em: <strong>{generatedAt}</strong></span>
+            <span>{footerLabel}: <strong>{formCode}</strong> - Revisão: <strong>{formRevision}</strong></span>
+            {showGeneratedAt && <span>Gerado em: <strong>{generatedAt}</strong></span>}
           </footer>
         </section>
       ))}
@@ -4117,9 +4560,9 @@ function buildRows(inspection) {
 
 function statusLabel(status) {
   const map = {
-    completed: 'Concluída',
-    approved: 'Aprovado',
-    rejected: 'Reprovado',
+    completed: 'Aguardando aprovação',
+    approved: 'Concluída',
+    rejected: 'Reprovada',
     in_progress: 'Aguardando aprovação',
   };
   return map[status] || status || 'Aguardando aprovação';

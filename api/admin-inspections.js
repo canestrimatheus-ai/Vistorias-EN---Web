@@ -297,19 +297,22 @@ async function handleScheduleAction(request, response) {
       const payload = {
         driver_user_id: canManage ? (body.driver_user_id || null) : user.id,
         driver_name: cleanText(body.driver_name || profile.full_name || user.email),
-        truck_plate: cleanPlate(body.truck_plate),
-        trailer_plate: cleanPlate(body.trailer_plate),
+        truck_plate: cleanPlate(body.truck_plate || body.plate || body.placa),
+        trailer_plate: body.trailer_plate ? cleanPlate(body.trailer_plate) : '',
         scheduled_date: cleanText(body.scheduled_date),
         scheduled_time: cleanText(body.scheduled_time) || null,
         notes: cleanText(body.notes) || null,
         status: canManage && body.assigned_inspector_id ? 'assigned' : 'scheduled',
         assigned_inspector_id: canManage && body.assigned_inspector_id ? body.assigned_inspector_id : null,
       };
-      if (!payload.driver_name || !payload.truck_plate || !payload.trailer_plate || !isDate(payload.scheduled_date)) {
-        throw new Error('Motorista, placas e data da vistoria são obrigatórios.');
+      if (!payload.driver_name || !payload.truck_plate || !isDate(payload.scheduled_date)) {
+        throw new Error('Motorista, placa do veículo e data da vistoria são obrigatórios.');
       }
-      if (!isValidPlate(payload.truck_plate) || !isValidPlate(payload.trailer_plate)) {
+      if (!isValidPlate(payload.truck_plate)) {
         throw new Error(INVALID_PLATE_MESSAGE);
+      }
+      if (payload.trailer_plate && !isValidPlate(payload.trailer_plate)) {
+        throw new Error('Placa da carreta inválida.');
       }
       const { data, error } = await admin.from('inspection_schedules').insert(payload).select().single();
       if (error) throw error;
@@ -346,7 +349,7 @@ async function handleScheduleAction(request, response) {
       } else if ('assigned_inspector_id' in body) {
         update.status = body.assigned_inspector_id ? 'assigned' : 'scheduled';
       }
-      if ((update.truck_plate && !isValidPlate(update.truck_plate)) || (update.trailer_plate && !isValidPlate(update.trailer_plate))) {
+      if ((update.truck_plate && !isValidPlate(update.truck_plate)) || (update.trailer_plate && update.trailer_plate.trim() && !isValidPlate(update.trailer_plate))) {
         throw new Error(INVALID_PLATE_MESSAGE);
       }
       const { data: previousSchedule } = await admin

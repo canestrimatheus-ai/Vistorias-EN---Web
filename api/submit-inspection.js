@@ -156,14 +156,19 @@ export default async function handler(request, response) {
   const photos = Array.isArray(body.photos) ? body.photos.slice(0, MAX_PHOTOS) : [];
   const now = new Date().toISOString();
   const isDriverAutocheck = profile.access_role === 'driver' && !scheduleId;
-  const inspectionType = isDriverAutocheck ? AUTOCHECK_TYPE : (scheduleId ? 'Agendada' : 'Vistoria Agregados');
+  const categoryModel = inspection.applicable?.__checklist_model?.category;
+  const categoryName = safeText(categoryModel?.name || inspection.applicable?.__checklist_model?.category_name);
+  const inspectionType = categoryName || (isDriverAutocheck ? AUTOCHECK_TYPE : (scheduleId ? 'Agendada' : 'Vistoria Agregados'));
+
+  const rawTruckPlate = safeText(inspection.truck_plate || inspection.plate || inspection.placa);
+  const rawTrailerPlate = safeText(inspection.trailer_plate || inspection.carreta_plate);
 
   const payload = {
     user_id: userData.user.id,
     type: inspectionType,
     driver_name: safeText(inspection.driver_name),
-    truck_plate: formatPlate(inspection.truck_plate),
-    trailer_plate: formatPlate(inspection.trailer_plate),
+    truck_plate: formatPlate(rawTruckPlate),
+    trailer_plate: rawTrailerPlate ? formatPlate(rawTrailerPlate) : '',
     status: 'completed',
     observations: safeText(inspection.observations),
     signature_data: signatureData,
@@ -172,13 +177,18 @@ export default async function handler(request, response) {
     completed_at: now,
   };
 
-  if (!payload.driver_name || !payload.truck_plate || !payload.trailer_plate) {
-    json(response, 400, { error: 'Motorista, placa do cavalo e placa da carreta são obrigatórios.' });
+  if (!payload.driver_name || !payload.truck_plate) {
+    json(response, 400, { error: 'Nome do motorista e placa do veículo são obrigatórios.' });
     return;
   }
 
-  if (!isValidPlate(payload.truck_plate) || !isValidPlate(payload.trailer_plate)) {
+  if (!isValidPlate(payload.truck_plate)) {
     json(response, 400, { error: INVALID_PLATE_MESSAGE });
+    return;
+  }
+
+  if (payload.trailer_plate && !isValidPlate(payload.trailer_plate)) {
+    json(response, 400, { error: 'Placa da carreta inválida.' });
     return;
   }
 
